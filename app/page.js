@@ -1,163 +1,166 @@
 "use client";
-import { useEffect, useState } from "react";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import api from "@/lib/api";
-import { getOrCreateUid, getNickname, setNickname, maskName } from "@/lib/user";
+
+const EMOTIONS = ["행복", "좋음", "아쉬움", "슬픔", "분노", "불안"];
+
+function todayISO() {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 
 export default function Home() {
+  const [list, setList] = useState([]);         // [{id, content, emotion, date, ...}]
   const [entry, setEntry] = useState("");
-  const [entries, setEntries] = useState([
-    "활기차지만 조금 슬프다",
-    "쫄깃쫄깃한 간식을 잔뜩 먹었다",
-    "오후에 잠깐 쉬고 나니 머리가 맑아졌다",
-  ]);
-  const [name, setName] = useState("");
+  const [emotion, setEmotion] = useState("행복");
   const [saving, setSaving] = useState(false);
-  const [genLoading, setGenLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editingText, setEditingText] = useState("");
+  const [editingEmotion, setEditingEmotion] = useState("행복");
+
+  const date = useMemo(() => todayISO(), []);
+
+  async function load() {
+    const res = await api.get("/diary/entries/", { params: { date } });
+    setList(Array.isArray(res.data) ? res.data : []);
+  }
 
   useEffect(() => {
-    getOrCreateUid();
-    setName(getNickname());
-  }, []);
-
-  const handleSetName = () => {
-    const n = prompt("표시할 이름(닉네임)을 입력하세요:");
-    if (n && n.trim()) {
-      setNickname(n.trim());
-      setName(n.trim());
-    }
-  };
+    load().catch(() => setList([]));
+  }, [date]);
 
   async function handleAdd() {
-    const v = entry.trim();
-    if (!v) return;
+    if (!entry.trim()) return;
     try {
       setSaving(true);
-      await api.post("/diary/entries/create/", { content: v });
-      setEntries(prev => [...prev, v]);
+      await api.post("/diary/entries/create/", { content: entry, emotion }); // 백엔드가 emotion 받으면 저장됨
       setEntry("");
-    } catch (e) {
-      console.error(e);
-      alert("저장 실패: 백엔드 서버/URL을 확인해주세요.");
+      setEmotion("행복");
+      await load();
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleFinish() {
+  function startEdit(item) {
+    setEditingId(item.id);
+    setEditingText(item.content);
+    setEditingEmotion(item.emotion || "행복");
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingText("");
+    setEditingEmotion("행복");
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
     try {
-      setGenLoading(true);
-      const today = new Date().toISOString().slice(0, 10);
-      const res = await api.post("/diary/generate/", { date: today });
-      localStorage.setItem("summary", JSON.stringify(res.data));
-      window.location.href = "/summary";
-    } catch (e) {
-      console.error(e);
-      alert("요약 생성 실패: 백엔드 로그를 확인해주세요.");
+      setSaving(true);
+      // 1) PUT/PATCH 시도 (백엔드에 해당 엔드포인트가 있을 때)
+      try {
+        await api.put(`/diary/entries/${editingId}/update/`, {
+          content: editingText,
+          emotion: editingEmotion,
+        });
+      } catch {
+        try {
+          await api.patch(`/diary/entries/${editingId}/update/`, {
+            content: editingText,
+            emotion: editingEmotion,
+          });
+        } catch {
+          alert("수정 API가 백엔드에 필요해요. (update 엔드포인트가 없거나 권한 문제)");
+        }
+      }
+      await load();
     } finally {
-      setGenLoading(false);
+      setSaving(false);
+      cancelEdit();
     }
   }
 
-  const handleKeyDown = (e) => e.key === "Enter" && handleAdd();
-
   return (
-    <div className="p-6 max-w-md mx-auto">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-2xl font-medium text-gray-800">한줄일기</h1>
-        <div className="text-right">
-          <div className="text-xs text-gray-500">안녕하세요</div>
-          <div className="text-xs text-gray-400">
-            {name ? `${maskName(name)}님` : (
-              <button onClick={handleSetName} className="underline hover:text-gray-500">
-                이름 설정
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-[#f8f6f3] p-6 max-w-2xl mx-auto">
+      {/* 공통 네비 */}
+      <nav className="mb-6 text-sm text-gray-600 flex gap-4">
+        <Link href="/" className="hover:underline">메인</Link>
+        <Link href="/login" className="hover:underline">로그인</Link>
+        <Link href="/history" className="hover:underline">히스토리</Link>
+        <Link href="/summary" className="hover:underline">요약</Link>
+      </nav>
 
-      {/* Date */}
-      <div className="mb-6">
-        <p className="text-sm text-gray-500 mb-1">
-          {new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" })} · 오늘 {entries.length}개의 기록
-        </p>
-        <div className="flex justify-end">
-          <button
-            onClick={handleFinish}
-            disabled={genLoading}
-            className="bg-[#d4c4b0] text-white text-sm px-4 py-1.5 rounded-full hover:bg-[#c4b29d] transition-colors disabled:opacity-60"
-          >
-            {genLoading ? "생성 중…" : "하루 마무리"}
-          </button>
-        </div>
-      </div>
+      <h1 className="text-2xl font-semibold text-gray-800 mb-4">오늘의 감정 흐름</h1>
 
-      {/* Input Section */}
-      <div className="mb-8">
-        <p className="text-gray-700 mb-4 font-medium">지금 이 순간, 어떤 기분인가요?</p>
-        <p className="text-xs text-gray-500 mb-3">
-          {new Date().toLocaleTimeString("ko-KR", { hour: "numeric", minute: "2-digit" })}
-        </p>
-
-        <div className="bg-white rounded-lg border border-gray-100 flex overflow-hidden shadow-sm">
+      {/* 입력 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm mb-6">
+        <div className="flex gap-2">
           <input
-            type="text"
-            placeholder="회의가 잘 끝나서 후련하다"
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="flex-1 px-4 py-3 outline-none text-sm"
+            placeholder="한 줄 일기를 입력하세요"
+            className="flex-1 border rounded-xl px-3 py-2"
           />
+          <select
+            value={emotion}
+            onChange={(e) => setEmotion(e.target.value)}
+            className="border rounded-xl px-3 py-2 bg-white"
+          >
+            {EMOTIONS.map((e) => <option key={e}>{e}</option>)}
+          </select>
           <button
             onClick={handleAdd}
             disabled={saving}
-            className="bg-[#d4c4b0] text-white px-5 hover:bg-[#c4b29d] transition-colors text-sm disabled:opacity-60"
+            className="px-4 py-2 bg-gray-900 text-white rounded-xl disabled:opacity-50"
           >
-            {saving ? "저장…" : "추가"}
+            저장
           </button>
         </div>
       </div>
 
-      {/* Entries List */}
-      <div className="mb-6">
-        <h2 className="text-lg font-medium mb-4 text-gray-800">오늘의 감정 흐름</h2>
-
-        <div className="space-y-3">
-          {entries.map((e, i) => (
-            <div
-              key={i}
-              className="bg-white rounded-lg border border-gray-100 px-4 py-3 flex justify-between items-center shadow-sm"
-            >
-              <span className="text-sm text-gray-700 flex-1">{e}</span>
-              <button className="text-xs text-gray-400 hover:text-gray-600 ml-2">편집</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Progress Section */}
-      <div className="mb-6">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-gray-700">일주 감정 변화</span>
-          <span className="text-xs text-orange-500">• 변화 50%</span>
-        </div>
-        <p className="text-xs text-gray-500 mb-3">
-          이번 달, 어려웠던 일들 사이로도 조금씩 즐거움이 스며들고 있어요.
-        </p>
-
-        {/* Progress Bar */}
-        <div className="w-full bg-gray-100 rounded-full h-2">
-          <div className="bg-orange-400 h-2 rounded-full w-1/2"></div>
-        </div>
-      </div>
-
-      {/* Bottom Tags */}
-      <div className="flex gap-2">
-        {["기쁨", "피곤함", "부족함"].map(tag => (
-          <button key={tag} className="text-xs text-gray-500 px-3 py-1.5 rounded-full border border-gray-200 hover:bg-gray-50">
-            {tag}
-          </button>
+      {/* 리스트 */}
+      <div className="space-y-2">
+        {list.length === 0 ? (
+          <div className="text-sm text-gray-500">아직 등록된 한 줄 일기가 없어요.</div>
+        ) : list.map((item) => (
+          <div key={item.id} className="bg-white rounded-2xl p-3 shadow-sm flex items-center justify-between">
+            {editingId === item.id ? (
+              <>
+                <div className="flex-1 flex gap-2">
+                  <input
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    className="flex-1 border rounded-xl px-3 py-2"
+                  />
+                  <select
+                    value={editingEmotion}
+                    onChange={(e) => setEditingEmotion(e.target.value)}
+                    className="border rounded-xl px-3 py-2 bg-white"
+                  >
+                    {EMOTIONS.map((e) => <option key={e}>{e}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-2 ml-3">
+                  <button onClick={saveEdit} className="px-3 py-2 text-sm bg-blue-600 text-white rounded-xl disabled:opacity-50" disabled={saving}>저장</button>
+                  <button onClick={cancelEdit} className="px-3 py-2 text-sm bg-gray-200 rounded-xl">취소</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex-1">
+                  <div className="text-gray-800">{item.content}</div>
+                  <div className="text-xs text-gray-500 mt-1">{item.emotion || "—"}</div>
+                </div>
+                <button onClick={() => startEdit(item)} className="px-3 py-1.5 text-sm border rounded-xl">
+                  편집
+                </button>
+              </>
+            )}
+          </div>
         ))}
       </div>
     </div>
