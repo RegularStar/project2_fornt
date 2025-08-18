@@ -1,40 +1,59 @@
 "use client";
+
 import { useEffect, useState } from "react";
-import api from "@/lib/api";
+import api from "../../lib/api";
 
 export default function HistoryPage() {
-  const [items, setItems] = useState([]);
+  const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.get("/diary/list/")
-      .then((res) => setItems(res.data))
-      .catch((e) => console.error(e))
-      .finally(() => setLoading(false));
+    async function fetchData() {
+      try {
+        // Fetch list of days with diary entries
+        const daysRes = await api.get("/diary/days/");
+        const days = daysRes.data || [];
+        const results = [];
+        // Fetch summary for each day
+        await Promise.all(
+          days.map(async (day) => {
+            try {
+              const res = await api.get("/diary/summaries/", { params: { date: day } });
+              // Ensure data shape has summary_text and emotion
+              const { summary_text, emotion } = res.data;
+              results.push({ date: day, summary_text, emotion });
+            } catch (err) {
+              console.error("Failed to fetch summary for", day, err);
+            }
+          })
+        );
+        // Sort results by date descending
+        results.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setEntries(results);
+      } catch (error) {
+        console.error("Failed to fetch history", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
   }, []);
 
+  if (loading) {
+    return <div className="p-4">Loading...</div>;
+  }
+
   return (
-    <div className="min-h-screen bg-[#FAF8F5]">
-      <div className="max-w-2xl mx-auto p-6">
-        <h1 className="text-2xl font-semibold text-gray-800 mb-6">지난 이야기들</h1>
-
-        <div className="bg-white rounded-xl shadow-sm p-5">
-          {loading && <div className="text-sm text-gray-500">불러오는 중…</div>}
-          {!loading && items.length === 0 && <div className="text-sm text-gray-400">아직 저장된 요약이 없어요.</div>}
-
-          <ul className="divide-y">
-            {items.map((d, i) => (
-              <li key={i} className="py-4">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="text-sm text-gray-500">{d.date}</div>
-                  <span className="text-xs inline-flex rounded-full px-2 py-1 bg-blue-50 text-blue-600">{d.emotion}</span>
-                </div>
-                <div className="text-gray-800">{d.summary_text}</div>
-              </li>
-            ))}
-          </ul>
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-4">History</h1>
+      {entries.map((entry) => (
+        <div key={entry.date} className="mb-4 border border-gray-300 rounded p-2">
+          <div className="font-semibold">{entry.date}</div>
+          <div className="text-sm italic">Emotion: {entry.emotion}</div>
+          <div>{entry.summary_text}</div>
         </div>
-      </div>
+      ))}
+      {entries.length === 0 && <div>No history found.</div>}
     </div>
   );
 }
