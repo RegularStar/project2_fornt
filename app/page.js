@@ -2,9 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import api from "@/lib/api";
-
-const EMOTIONS = ["행복", "좋음", "아쉬움", "슬픔", "분노", "불안"];
 
 function todayISO() {
   const d = new Date();
@@ -14,22 +13,39 @@ function todayISO() {
 }
 
 export default function Home() {
-  const [list, setList] = useState([]);         // [{id, content, emotion, date, ...}]
+  const router = useRouter();
+
+  const [user, setUser] = useState(null);
+  const [list, setList] = useState([]);
   const [entry, setEntry] = useState("");
-  const [emotion, setEmotion] = useState("행복");
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editingText, setEditingText] = useState("");
-  const [editingEmotion, setEditingEmotion] = useState("행복");
 
   const date = useMemo(() => todayISO(), []);
 
+  // ✅ 로그인 상태 확인
+  async function fetchMe() {
+    try {
+      const r1 = await api.get("/api/me/");
+      setUser(r1.data);
+      return;
+    } catch {}
+    try {
+      const r2 = await api.get("/api/diary/whoami/");
+      setUser(r2.data);
+    } catch {
+      setUser(null);
+    }
+  }
+
   async function load() {
-    const res = await api.get("/diary/entries/", { params: { date } });
+    const res = await api.get("/api/diary/entries/", { params: { date } });
     setList(Array.isArray(res.data) ? res.data : []);
   }
 
   useEffect(() => {
+    fetchMe();
     load().catch(() => setList([]));
   }, [date]);
 
@@ -37,9 +53,8 @@ export default function Home() {
     if (!entry.trim()) return;
     try {
       setSaving(true);
-      await api.post("/diary/entries/create/", { content: entry, emotion }); // 백엔드가 emotion 받으면 저장됨
+      await api.post("/api/diary/entries/create/", { content: entry });
       setEntry("");
-      setEmotion("행복");
       await load();
     } finally {
       setSaving(false);
@@ -49,32 +64,27 @@ export default function Home() {
   function startEdit(item) {
     setEditingId(item.id);
     setEditingText(item.content);
-    setEditingEmotion(item.emotion || "행복");
   }
   function cancelEdit() {
     setEditingId(null);
     setEditingText("");
-    setEditingEmotion("행복");
   }
 
   async function saveEdit() {
     if (!editingId) return;
     try {
       setSaving(true);
-      // 1) PUT/PATCH 시도 (백엔드에 해당 엔드포인트가 있을 때)
       try {
-        await api.put(`/diary/entries/${editingId}/update/`, {
-          content: editingText,
-          emotion: editingEmotion,
+        await api.put(`/api/diary/entries/${editingId}/update/`, {
+          content: editingText, // ✅ emotion 제거
         });
       } catch {
         try {
-          await api.patch(`/diary/entries/${editingId}/update/`, {
+          await api.patch(`/api/diary/entries/${editingId}/update/`, {
             content: editingText,
-            emotion: editingEmotion,
           });
         } catch {
-          alert("수정 API가 백엔드에 필요해요. (update 엔드포인트가 없거나 권한 문제)");
+          alert("수정 API가 백엔드에 필요해요.");
         }
       }
       await load();
@@ -84,14 +94,45 @@ export default function Home() {
     }
   }
 
+  async function handleLogout() {
+    try {
+      await api.post("/api/user/logout/");
+    } catch {
+      try {
+        await api.post("/api/auth/logout/");
+      } catch {}
+    }
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("uid");
+    setUser(null);
+    router.replace("/login");
+  }
+
+  const displayName =
+    user?.username || user?.email || (user?.id ? `#${String(user.id).slice(0, 6)}` : null);
+
   return (
     <div className="min-h-screen bg-[#f8f6f3] p-6 max-w-2xl mx-auto">
-      {/* 공통 네비 */}
-      <nav className="mb-6 text-sm text-gray-600 flex gap-4">
-        <Link href="/" className="hover:underline">메인</Link>
-        <Link href="/login" className="hover:underline">로그인</Link>
-        <Link href="/history" className="hover:underline">히스토리</Link>
-        <Link href="/summary" className="hover:underline">요약</Link>
+      {/* 상단 네비 */}
+      <nav className="mb-6 text-sm text-gray-600 flex items-center justify-between">
+        <div className="flex gap-4">
+          <Link href="/" className="hover:underline">메인</Link>
+          <Link href="/history" className="hover:underline">히스토리</Link>
+          <Link href="/summary" className="hover:underline">요약</Link>
+        </div>
+        <div className="flex items-center gap-3">
+          {displayName && <span className="text-gray-700">👤 {displayName}</span>}
+          {user ? (
+            <button onClick={handleLogout} className="px-3 py-1.5 rounded-lg border hover:bg-gray-100">
+              로그아웃
+            </button>
+          ) : (
+            <Link href="/login" className="px-3 py-1.5 rounded-lg border hover:bg-gray-100">
+              로그인
+            </Link>
+          )}
+        </div>
       </nav>
 
       <h1 className="text-2xl font-semibold text-gray-800 mb-4">오늘의 감정 흐름</h1>
@@ -105,13 +146,6 @@ export default function Home() {
             placeholder="한 줄 일기를 입력하세요"
             className="flex-1 border rounded-xl px-3 py-2"
           />
-          <select
-            value={emotion}
-            onChange={(e) => setEmotion(e.target.value)}
-            className="border rounded-xl px-3 py-2 bg-white"
-          >
-            {EMOTIONS.map((e) => <option key={e}>{e}</option>)}
-          </select>
           <button
             onClick={handleAdd}
             disabled={saving}
@@ -136,13 +170,6 @@ export default function Home() {
                     onChange={(e) => setEditingText(e.target.value)}
                     className="flex-1 border rounded-xl px-3 py-2"
                   />
-                  <select
-                    value={editingEmotion}
-                    onChange={(e) => setEditingEmotion(e.target.value)}
-                    className="border rounded-xl px-3 py-2 bg-white"
-                  >
-                    {EMOTIONS.map((e) => <option key={e}>{e}</option>)}
-                  </select>
                 </div>
                 <div className="flex gap-2 ml-3">
                   <button onClick={saveEdit} className="px-3 py-2 text-sm bg-blue-600 text-white rounded-xl disabled:opacity-50" disabled={saving}>저장</button>
@@ -153,6 +180,7 @@ export default function Home() {
               <>
                 <div className="flex-1">
                   <div className="text-gray-800">{item.content}</div>
+                  {/* emotion 필드는 DB에서 나중에 분석결과로 채우면 여기에 표시 가능 */}
                   <div className="text-xs text-gray-500 mt-1">{item.emotion || "—"}</div>
                 </div>
                 <button onClick={() => startEdit(item)} className="px-3 py-1.5 text-sm border rounded-xl">
