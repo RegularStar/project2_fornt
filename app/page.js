@@ -24,7 +24,7 @@ export default function Home() {
 
   const date = useMemo(() => todayISO(), []);
 
-  // ✅ 로그인 상태 확인
+  // 로그인 상태 확인
   async function fetchMe() {
     try {
       const r1 = await api.get("/api/me/");
@@ -49,6 +49,7 @@ export default function Home() {
     load().catch(() => setList([]));
   }, [date]);
 
+  // 생성
   async function handleAdd() {
     if (!entry.trim()) return;
     try {
@@ -61,6 +62,7 @@ export default function Home() {
     }
   }
 
+  // 수정 시작/취소
   function startEdit(item) {
     setEditingId(item.id);
     setEditingText(item.content);
@@ -70,27 +72,38 @@ export default function Home() {
     setEditingText("");
   }
 
+  // 수정 저장 (PUT/PATCH)
   async function saveEdit() {
     if (!editingId) return;
     try {
       setSaving(true);
       try {
-        await api.put(`/api/diary/entries/${editingId}/update/`, {
-          content: editingText, // ✅ emotion 제거
-        });
+        await api.put(`/api/diary/entries/${editingId}/update/`, { content: editingText });
       } catch {
-        try {
-          await api.patch(`/api/diary/entries/${editingId}/update/`, {
-            content: editingText,
-          });
-        } catch {
-          alert("수정 API가 백엔드에 필요해요.");
-        }
+        await api.patch(`/api/diary/entries/${editingId}/update/`, { content: editingText });
       }
       await load();
+    } catch {
+      alert("수정 중 오류가 발생했어요.");
     } finally {
       setSaving(false);
       cancelEdit();
+    }
+  }
+
+  // 삭제
+  async function handleDelete(id) {
+    if (!confirm("이 일기를 삭제할까요?")) return;
+    try {
+      setSaving(true);
+      await api.delete(`/api/diary/entries/${id}/delete/`);
+      // 낙관적 업데이트
+      setList((prev) => prev.filter((x) => x.id !== id));
+      if (editingId === id) cancelEdit();
+    } catch {
+      alert("삭제 중 오류가 발생했어요.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -143,6 +156,7 @@ export default function Home() {
           <input
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
             placeholder="한 줄 일기를 입력하세요"
             className="flex-1 border rounded-xl px-3 py-2"
           />
@@ -161,31 +175,66 @@ export default function Home() {
         {list.length === 0 ? (
           <div className="text-sm text-gray-500">아직 등록된 한 줄 일기가 없어요.</div>
         ) : list.map((item) => (
-          <div key={item.id} className="bg-white rounded-2xl p-3 shadow-sm flex items-center justify-between">
+          <div
+            key={item.id}
+            className="bg-white rounded-2xl p-3 shadow-sm flex items-center justify-between"
+          >
             {editingId === item.id ? (
               <>
                 <div className="flex-1 flex gap-2">
                   <input
                     value={editingText}
                     onChange={(e) => setEditingText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); }}
                     className="flex-1 border rounded-xl px-3 py-2"
                   />
                 </div>
                 <div className="flex gap-2 ml-3">
-                  <button onClick={saveEdit} className="px-3 py-2 text-sm bg-blue-600 text-white rounded-xl disabled:opacity-50" disabled={saving}>저장</button>
-                  <button onClick={cancelEdit} className="px-3 py-2 text-sm bg-gray-200 rounded-xl">취소</button>
+                  <button
+                    onClick={saveEdit}
+                    className="px-3 py-2 text-sm bg-blue-600 text-white rounded-xl disabled:opacity-50"
+                    disabled={saving}
+                  >
+                    저장
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="px-3 py-2 text-sm bg-gray-200 rounded-xl"
+                  >
+                    취소
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="px-3 py-2 text-sm bg-red-50 text-red-600 rounded-xl"
+                    disabled={saving}
+                    title="삭제"
+                  >
+                    삭제
+                  </button>
                 </div>
               </>
             ) : (
               <>
                 <div className="flex-1">
                   <div className="text-gray-800">{item.content}</div>
-                  {/* emotion 필드는 DB에서 나중에 분석결과로 채우면 여기에 표시 가능 */}
                   <div className="text-xs text-gray-500 mt-1">{item.emotion || "—"}</div>
                 </div>
-                <button onClick={() => startEdit(item)} className="px-3 py-1.5 text-sm border rounded-xl">
-                  편집
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => startEdit(item)}
+                    className="px-3 py-1.5 text-sm border rounded-xl"
+                  >
+                    편집
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="px-3 py-1.5 text-sm border rounded-xl text-red-600"
+                    disabled={saving}
+                    title="삭제"
+                  >
+                    삭제
+                  </button>
+                </div>
               </>
             )}
           </div>
