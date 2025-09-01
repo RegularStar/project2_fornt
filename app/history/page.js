@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 
 const EMOTION_COLOR = {
@@ -36,6 +38,11 @@ function buildMonthDays(date = new Date()) {
 }
 
 export default function HistoryPage() {
+  const router = useRouter();
+
+  // ✅ 상단 네비게이션용 유저 상태
+  const [user, setUser] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [entries, setEntries] = useState([]); // [{date:'YYYY-MM-DD', summary_text, emotion}]
@@ -44,6 +51,41 @@ export default function HistoryPage() {
   const [emoFilter, setEmoFilter] = useState("전체");
 
   const { year, month, days: monthDays } = useMemo(() => buildMonthDays(), []);
+
+  // ✅ 로그인 상태 확인 (다른 페이지와 동일 패턴)
+  async function fetchMe() {
+    try {
+      const r1 = await api.get("/api/me/");
+      setUser(r1.data);
+      return;
+    } catch {}
+    try {
+      const r2 = await api.get("/api/diary/whoami/");
+      setUser(r2.data);
+    } catch {
+      setUser(null);
+    }
+  }
+
+  // ✅ 로그아웃 (다른 페이지와 동일)
+  async function handleLogout() {
+    try {
+      await api.post("/api/user/logout/");
+    } catch {
+      try {
+        await api.post("/api/auth/logout/");
+      } catch {}
+    }
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("uid");
+    setUser(null);
+    router.replace("/login");
+  }
+
+  useEffect(() => {
+    fetchMe();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +111,7 @@ export default function HistoryPage() {
           })
           .filter(Boolean);
 
-        // 2) 각 날짜의 요약 동시 로드 (백엔드는 ?date=YYYY-MM-DD 를 기대)
+        // 2) 각 날짜의 요약 동시 로드
         const settled = await Promise.allSettled(
           dayList.map((d) => api.get("/api/diary/summaries/", { params: { date: d } }))
         );
@@ -111,8 +153,32 @@ export default function HistoryPage() {
     .filter((e) => (emoFilter === "전체" ? true : e.emotion === emoFilter))
     .filter((e) => (selectedDate ? e.date === selectedDate : true));
 
+  const displayName =
+    user?.username || user?.email || (user?.id ? `#${String(user.id).slice(0, 6)}` : null);
+
   return (
     <div className="min-h-screen bg-[#f8f6f3] p-6 max-w-2xl mx-auto">
+      {/* ✅ 상단 네비게이션 (다른 페이지와 동일 스타일) */}
+      <nav className="mb-6 text-sm text-gray-600 flex items-center justify-between">
+        <div className="flex gap-4">
+          <Link href="/" className="hover:underline">메인</Link>
+          <Link href="/history" className="hover:underline">히스토리</Link>
+          <Link href="/summary" className="hover:underline">요약</Link>
+        </div>
+        <div className="flex items-center gap-3">
+          {displayName && <span className="text-gray-700">👤 {displayName}</span>}
+          {user ? (
+            <button onClick={handleLogout} className="px-3 py-1.5 rounded-lg border hover:bg-gray-100">
+              로그아웃
+            </button>
+          ) : (
+            <Link href="/login" className="px-3 py-1.5 rounded-lg border hover:bg-gray-100">
+              로그인
+            </Link>
+          )}
+        </div>
+      </nav>
+
       {/* Header */}
       <div className="flex justify-between items-start mb-6">
         <div className="flex items-center gap-3">
