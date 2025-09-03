@@ -10,19 +10,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  // 백엔드 베이스 URL (루트에 .env.local 파일에 설정)
-  // NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-  const KAKAO_START_URL =
-    (process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000") +
-    // ⬇️ 너의 백엔드에서 "카카오 로그인 시작" 엔드포인트 경로에 맞춰 수정
-    "/user/login/callback/";
+  // api 인스턴스에 설정된 baseURL 재사용
+  const KAKAO_START_URL = `${api.defaults.baseURL}/user/login/callback/`;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
     try {
-      // 혹시 남아 있을 기존 토큰(관리자 토큰 등) 정리
       localStorage.removeItem("accessToken");
       localStorage.removeItem("refreshToken");
       localStorage.removeItem("uid");
@@ -48,9 +43,6 @@ export default function LoginPage() {
   };
 
   const handleKakaoLogin = () => {
-    // 카카오 인가 플로우 시작: 백엔드로 이동 → 카카오 → (Django 콜백) → 프론트 /auth/callback
-    // (백엔드 kakao_callback에서 최종 리다이렉트:
-    //   http://localhost:3000/auth/callback#access=...&refresh=... )
     window.location.href = KAKAO_START_URL;
   };
 
@@ -64,7 +56,6 @@ export default function LoginPage() {
 
         {error && <div className="text-red-500 mb-2">{error}</div>}
 
-        {/* ID / 비밀번호 로그인 */}
         <input
           type="text"
           placeholder="Username"
@@ -88,14 +79,12 @@ export default function LoginPage() {
           Login
         </button>
 
-        {/* 구분선 */}
         <div className="flex items-center my-4">
           <div className="flex-1 h-px bg-gray-200" />
           <span className="px-3 text-sm text-gray-500">or</span>
           <div className="flex-1 h-px bg-gray-200" />
         </div>
 
-        {/* 카카오 로그인 */}
         <button
           type="button"
           onClick={handleKakaoLogin}
