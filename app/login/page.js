@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   // api 인스턴스에 설정된 baseURL 재사용
-  const KAKAO_START_URL = `${api.defaults.baseURL}/user/login/callback/`;
+  const KAKAO_START_URL = `${api.defaults.baseURL}/api/user/login/callback/`;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,7 +22,7 @@ export default function LoginPage() {
       localStorage.removeItem("refreshToken");
       localStorage.removeItem("uid");
 
-      const response = await api.post("/api/token/", {
+      const response = await api.post("/api/api/token/", {
         username,
         password,
       });
